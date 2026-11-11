@@ -1,0 +1,55 @@
+x-churn-app: &churn-app
+  image: customer-churn-platform:latest
+
+services:
+  api:
+    <<: *churn-app
+    build: .
+    command: ["uvicorn", "churn_platform.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      CHURN_MODEL_PATH: /app/models/churn_pipeline.joblib
+      CHURN_REPORTS_DIR: /app/reports
+    ports:
+      - "127.0.0.1:8001:8000"
+    volumes:
+      - ./models:/app/models:ro
+      - ./reports:/app/reports:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  dashboard:
+    <<: *churn-app
+    command: ["streamlit", "run", "streamlit_app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+    environment:
+      CHURN_API_URL: http://api:8000
+      CHURN_MODEL_PATH: /app/models/churn_pipeline.joblib
+      CHURN_REPORTS_DIR: /app/reports
+    ports:
+      - "127.0.0.1:8501:8501"
+    volumes:
+      - ./models:/app/models:ro
+      - ./reports:/app/reports:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=2)"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+
+  trainer:
+    <<: *churn-app
+    profiles: ["training"]
+    entrypoint: ["churn-platform"]
+    environment:
+      CHURN_DATA_PATH: /app/data/raw/Telco-Customer-Churn.csv
+      CHURN_MODEL_PATH: /app/models/churn_pipeline.joblib
+      CHURN_REPORTS_DIR: /app/reports
+    volumes:
+      - ./data/raw:/app/data/raw
+      - ./models:/app/models
+      - ./reports:/app/reports
